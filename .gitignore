@@ -1,0 +1,10 @@
+# Dependencies and caches (never committed; dist/ IS committed on purpose)
+node_modules
+.npm
+*.tsbuildinfo
+*.log
+.DS_Store
+.vite
+
+# Local scratch space used for checks
+test/scratch
