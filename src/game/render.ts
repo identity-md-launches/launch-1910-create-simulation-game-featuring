@@ -199,6 +199,18 @@ export function render(
     })
   }
   const labels = layoutLabels(anchors, opts.area, opts.labelOffsets, opts.occluders)
+  // Full-size IDs and sprite clearance have a finite capacity. Repack first;
+  // if even that cannot fit, narrow the view instead of drawing unlabelled
+  // bodies. Preserve the open map's focal point (including a selected face).
+  // Ordinary minimum-zoom frames remain at 0.5; the simulation is untouched.
+  if (labels.length < anchors.length && cam.zoom < 2.5) {
+    const zoom = Math.min(2.5, cam.zoom * 1.1)
+    cam.x += (opts.area.x + opts.area.w / 2 - vp.w / 2) * (1 / cam.zoom - 1 / zoom)
+    cam.y += (opts.area.y + opts.area.h / 2 - vp.h / 2) * (1 / cam.zoom - 1 / zoom)
+    cam.zoom = zoom
+    render(g, staticLayer, sim, cam, vp, opts)
+    return
+  }
   g.lineWidth = 1
   for (const l of labels) {
     if (!l.moved) continue

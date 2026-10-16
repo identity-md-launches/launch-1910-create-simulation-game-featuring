@@ -2,7 +2,102 @@
 
 Worker-side record. It is not an independent certification.
 
-## Revision: 2026-10-16
+## Current revision: missing IDs at minimum zoom (2026-10-16)
+
+Scope: finding `ec37255a55d94c31d953b939205a249251452677c7d0859d0baa5bee4e390432`.
+This section supersedes earlier claims about label coverage. The earlier records below are kept
+as history, not additional checks performed for this revision.
+
+### Reproduction and correction
+
+The accepted export reproduced the omission before edits. The available Chromium font produced
+39.112793px label boxes and passed the old interaction check. Supplying the reviewer's 44.269px
+box measurement through a canvas `measureText` adapter exposed the defect with the unchanged
+1,096-agent snapshot and camera `{x:1800,y:1450,zoom:0.5}`. At 2.8488 simulated seconds,
+320×700 painted **89 of 111** in-map IDs (including missing 51981 and 52626); 390×844 painted
+**155 of 159**. Different animation timesteps explain why these counts differ from the reviewer's
+capture. Evidence: `test/scratch/packing/before-320.json`, `before-390.json` and their screenshots.
+The native font was not replaced: the adapter changes the measured space the layout must reserve.
+
+| Source | Finding and fix | Recheck |
+| --- | --- | --- |
+| `src/game/labels.ts:114`, `:253` | Greedy placement exhausted fragmented gaps and silently skipped IDs. A fallback now clears unselected placements, packs rows around all reserved sprites/antennas/overlays, fills residual gaps, and assigns slots near their agents. The selected label retains first choice and its position. Full strings, measured widths, 15px height, 1px clearance, 4px inset and connectors remain. | All 540 snapshot layouts pass at 39, 44, 44.269, 45 and 46px widths, including selected and repeated paused layouts. Production canvas draws match every visible ID in all 18 width/viewport cases. |
+| `src/game/labels.ts:207` | Repacking unchanged frames would waste work and shuffle labels. Cache reuse validates IDs, widths, selection, sprite clearance and bounds. Packed positions may survive up to 12px of anchor movement; ordinary positions are reused only for unchanged anchors. A 1e-7px tolerance handles floating-point noise at aligned edges. | Paused-layout stability, width changes, selection priority and collision checks pass. The rendering probe samples at least eight frames after each metric change. |
+| `src/game/render.ts:206` | Longer simulations also expose views too crowded for either placement strategy. An incomplete layout is now a capacity signal; before drawing bodies/IDs, the renderer increases camera zoom in 10% steps, within the existing 0.5–2.5 range, around the unobscured map centre. This keeps the focal point and simulation state intact. | The reported short replay stays at 0.5 at every tested width. Another 100 dense cases through 300 simulated seconds, with and without a panel-sized map area, paint every final visible ID; maximum required zoom is 0.805. Agent state and focal point comparisons pass. |
+
+This changes only label placement and the camera's response to an overfull label layout. The
+roster, autonomous tasks, selection/gaze/resume mechanics, UI styles, font stack, package files,
+lockfile and images are unchanged. No dependency or new player control was added.
+
+### Current checks
+
+Dependencies were installed from the existing lockfile in a disposable build copy under `/tmp`;
+the repository's protected dependency directory was not created or modified. The copy contained
+the exact final `src/`, `public/`, HTML, package files, TypeScript and Vite configuration. Commands:
+
+```sh
+npm ci --prefix "$task_build_dir" --cache "$task_build_dir/npm-cache" --ignore-scripts --no-audit --no-fund
+npm --prefix "$task_build_dir" run typecheck
+npm --prefix "$task_build_dir" run build
+node --experimental-strip-types scripts/check-labels.mjs
+PLAYWRIGHT_BROWSERS_PATH=/opt/imd-tools/ms-playwright node scripts/check-label-render.mjs /opt/imd-tools/playwright-mcp/node_modules/playwright/index.mjs
+PLAYWRIGHT_BROWSERS_PATH=/opt/imd-tools/ms-playwright node scripts/check-interactions.mjs /opt/imd-tools/playwright-mcp/node_modules/playwright/index.mjs
+IMD_PLAYWRIGHT=/opt/imd-tools/playwright-mcp/node_modules/playwright/index.mjs PLAYWRIGHT_BROWSERS_PATH=/opt/imd-tools/ms-playwright node .imd/reads/skills/design-critic/scripts/taste.mjs --out test/scratch/taste --offline
+```
+
+- **Build and typecheck:** exit 0. Vite produced one JS chunk (364.09kB; 119.40kB gzip),
+  the existing CSS (8.28kB), `index.html` (1.33kB), favicon and OG image. The finished export was
+  copied back to `dist/`; obsolete JS bundles were removed. Relative URLs were exercised under
+  `/preview/`. No dependency archive/cache is part of the submission.
+- **File integrity and budget:** final source, public assets and export match the isolated build
+  copy byte for byte. All referenced relative assets exist. The submission candidate is about
+  1.08MB across 34 files; `dist/` is 571,542 bytes, below the 8MiB limit. Package files, lockfile
+  and `.gitignore` have no diff. `git diff --check` passes. The response JSON parses and contains
+  the exact finding ID; it is consumed separately by the worker.
+- **Label geometry/simulation:** exit 0; 180 encounter frames plus 540 snapshot layouts and
+  100 later dense render cases. Up to 637 IDs in a tested layout. The new cases use the real
+  snapshot and simulation, not a fabricated 12-agent substitute. Assert full IDs, measured
+  widths, collision/overlay/sprite/antenna clearance, containment, selected priority, connectors,
+  paused stability and camera/state preservation.
+- **Production paint:** exit 0; 18 cases at 320×700, 390×844 and 1440×900, all DPR 2.
+  Native metrics plus 39, 44, 44.269, 45 and 46px reserved widths. Every case stays at 0.5 zoom,
+  and every visible ID is painted once, with no collisions, clipping, sprite/antenna intersections
+  or overlay intersections. Counts vary slightly with animation timing; detailed measurements
+  are in `test/scratch/label-render/results.json`.
+- **Primary interactions:** exit 0; 224 assertions. Includes direct selection, Find, stopped
+  world state, frontal gaze, background release, restored tasks, Pause/Resume, reduced motion,
+  full Owner address, keyboard Escape, Help, unknown-ID recovery, seven viewport resizes, four
+  world-edge selections and fifteen pan positions. Chromium at 320/390/1440, DPR 1/2. No script
+  or local-resource errors. API refresh was blocked deliberately to test the bundled fallback.
+- **taste@1:** exit 0; 16/16 checks pass, including layout at 320/390/1440, share metadata,
+  controls, DOM text contrast, type scale and reduced motion. The canvas is not inferred to be
+  readable from this DOM-only probe; dedicated paint assertions and viewed screenshots cover it.
+
+Browser evidence is disposable: `test/scratch/label-render/` (first screens and 44.269/46px label
+layouts), `test/scratch/revision/` (selection, owner, resize and pan states), and
+`test/scratch/taste/shots/`. Regression scripts stay in `scripts/`; screenshots and captures
+are not shipped. `.imd-responses.json` contains this finding's disposition.
+
+### Better Interface review of the final changes
+
+| Domain | Coverage and result | Limitations |
+| --- | --- | --- |
+| Accessibility | Checked affected flows: Find/keyboard selection, panel heading focus, Escape, paused gaze and reduced-motion behavior pass; the source keeps full IDs and unchanged control semantics. | No screen-reader, physical touch device or forced-colors session. |
+| Layout | Checked 320/390/1440 and the existing resize cases. The 390 first screen shows the game and its tap instruction. Full labels stay clear of sprite bounds and measured overlays. Selected face/ID remain outside the details panel. | No RTL mirror or native browser 200% zoom. |
+| Writing | Checked source: existing instructions, truthful snapshot notice, action names and recoverable Find error remain unchanged. | No new product copy to review. |
+| Typography | Checked actual canvas draws and full reserved boxes at native and wider metrics. 11px/600 IDs, full strings, font stack and UI scale preserved; no truncation or shrinking. | Wider metric tests do not reproduce the reviewer's installed font or glyph rasterization. |
+| Colors | Checked unchanged source tokens and the final probe's DOM contrast results. Existing dark halos and connector colours retained. | Canvas and translucent-overlay contrast were not instrument-measured. |
+| UI | Checked packed-label stability, selected priority, connectors, capacity zoom and click/resume interactions. Viewed mobile and desktop screenshots. No new control or visual system. | No physical-device performance benchmark or slowed DevTools animation review. |
+
+Complete for this bounded revision. WebKit launch was attempted and returned that its browser
+executable is not installed; WebKit was not rerun. Chromium rendering and source/geometry checks
+are the current evidence. Coverage is the bundled 1,096-agent roster and recorded simulation
+states, not arbitrary future roster growth or unbounded crowd density. Live endpoint availability
+was not revalidated. The network handles hosting and the final commit/upload.
+
+---
+
+## Previous revision: 2026-10-16
 
 Scope: reproduce and address the four reopened findings while preserving the accepted game,
 data source, visual system, controls and dependency lockfile. All four findings reproduced in

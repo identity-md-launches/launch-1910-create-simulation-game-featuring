@@ -70,7 +70,10 @@ constant 11px screen size regardless of zoom (`render.ts`, the screen-space font
 strings are measured before placement; each label reserves its measured width plus 6px and 15px
 height, with a 1px collision gutter and a 4px inset from the visible map edges (`labels.ts`).
 Selected labels are placed first. Nearby positions and retained short offsets resolve collisions
-with other labels, bodies, antennas and the map's text overlays. Displaced labels use a 1px
+with other labels, bodies, antennas and the map's text overlays. If that search exhausts the gaps,
+the packing fallback repositions unselected labels into obstacle-free rows, holding the selected
+label's placement. It assigns slots near their agents and retains valid packed positions while
+agents move a short distance. Unchanged paused frames reuse their placements. Displaced labels use a 1px
 connector in `rgba(232,237,255,0.55)` (primary label colour when selected). Connectors render below
 sprites; labels and their 3px dark halos render after all sprites.
 
@@ -99,6 +102,12 @@ Every selection, Find result and panel/viewport size change centres the selected
 largest rectangular part of the map left by the actual panel bounds, with an 8px gutter. The
 camera moves; the agent's world coordinates and interrupted task do not. Focusing near a world
 edge may reveal the surrounding void so the selected face still occupies the open area's centre.
+
+The camera supports 0.5–2.5× zoom. If a dense view cannot fit all full-size IDs even after
+repacking, `render.ts` increases zoom in 10% steps around the open map's centre before painting
+agents. This preserves the selected focal point and all simulation state. The reported minimum
+zoom replay remains at 0.5 at 320/390px for label widths from 39 to 46px; later crowded test frames
+needed at most 0.805×. Labels retain their 11px type size throughout.
 
 Observed: no horizontal scroll at 320, 390, 768, 844, 895, 896 or 1440; no DOM text overlap in the
 probe; no canvas ID overlap or missing visible IDs in the recorded browser cases. Resizing an

@@ -49,6 +49,8 @@ with an agent selected, then rebuild so it is copied into `dist/`.
   above or beside the measured details panel without changing its position or saved task.
 - Tap or click the map, press Escape, or use the close button: the panel closes and the agent resumes.
 - Drag to pan, scroll or pinch to zoom. With the map focused, arrow keys pan and `+`/`-` zoom.
+  Labels repack when crowded. If they still cannot all fit, the camera zooms in just enough
+  to keep visible agents labelled, preserving the map's focal point.
 - Find agent: jump to an agent by its ID number, or meet a random one. This is also the keyboard
   path to the main action.
 - Pause: stops world movement and task timers; selecting or releasing an agent still updates its
@@ -65,7 +67,8 @@ to exercise the bundled fallback. The original build record is preserved in `doc
 | `npm run build` | passes: `tsc -b` then Vite wrote `dist/` (index.html, 1 JS chunk, 1 CSS file, favicon.svg, og.png) |
 | `npm run typecheck` | passes with no errors (strict, `noUncheckedIndexedAccess`) |
 | `node scripts/check-interactions.mjs <playwright-module>` | 224 checks passed in Chromium; 320, 390, 1440px, DPR 1/2; seven resize cases, four world-edge selections, fifteen pan positions |
-| `node --experimental-strip-types scripts/check-labels.mjs` | 180 crowded encounter frames passed at three widths and zoom levels 0.5, 1, 2.5 |
+| `node --experimental-strip-types scripts/check-labels.mjs` | 180 encounter frames, 540 snapshot layouts at 39–46px label widths, and 100 dense render cases through 300 simulated seconds passed |
+| `node scripts/check-label-render.mjs <playwright-module>` | 18 production paint cases passed at 320, 390 and 1440px, DPR 2; native metrics and 39, 44, 44.269, 45, 46px boxes, all at zoom 0.5 |
 | `node .imd/reads/skills/design-critic/scripts/taste.mjs --out test/scratch/taste --offline` | 16/16 checks passed at 320, 390 and 1440 |
 
 The browser check reads actual canvas text draws, including halos, and requires every visible ID
@@ -74,7 +77,10 @@ overlays. It also verifies direct selection and Find leave the entire face and I
 panel; selection/release turn the gaze while paused; coordinates and task timers stay fixed;
 the full Owner address wraps and can be selected; and Find, Escape, Help and Resume still work.
 Label placement gives the selected agent first choice, keeps the full numbers, and adds a
-connector when a label moves away from its agent. No new runtime dependency was added.
+connector when a label moves away from its agent. A packing fallback repositions earlier labels
+when greedy placement runs out of gaps. Valid packed placements and unchanged paused frames
+are reused. No font, ID, sprite, snapshot or dependency was changed. The label regression script
+uses Node 22's type stripping and module hooks.
 
 The browser script uses an existing Playwright installation (omit the argument when `playwright`
 is locally resolvable). Set `PLAYWRIGHT_BROWSERS_PATH` if that installation uses a custom browser
@@ -83,8 +89,9 @@ under ignored `test/scratch/`, and closes both on completion. Exact commands and
 are in `docs/validation.md`.
 
 Limitations, recorded honestly: emulated mobile viewports are not physical devices; no
-screen-reader session or browser-native 200% zoom was run. WebKit could not be rerun because its
-browser executable was unavailable, and the managed browser tool returned `Transport closed`;
-the revision was rendered and inspected using direct Playwright Chromium screenshots. Canvas
+screen-reader session or browser-native 200% zoom was run. WebKit launch was attempted but its
+browser executable was unavailable; this revision was rendered and inspected using direct
+Playwright Chromium screenshots. The wide-font cases override measured label widths; they do
+not install the reviewer's font or reproduce its glyph rasterization. Canvas
 contrast was not instrument-measured. Live refresh still depends on the public endpoint being
 reachable at page load. Full coverage, findings and fixes are in `docs/validation.md`.
