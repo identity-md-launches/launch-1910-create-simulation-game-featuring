@@ -45,35 +45,46 @@ with an agent selected, then rebuild so it is copied into `dist/`.
 
 ## Controls
 
-- Tap or click an agent: it stops and looks at you, and its details open.
+- Tap or click an agent: it stops and looks at you, and its details open. The camera centres it
+  above or beside the measured details panel without changing its position or saved task.
 - Tap or click the map, press Escape, or use the close button: the panel closes and the agent resumes.
 - Drag to pan, scroll or pinch to zoom. With the map focused, arrow keys pan and `+`/`-` zoom.
 - Find agent: jump to an agent by its ID number, or meet a random one. This is also the keyboard
   path to the main action.
-- Pause: stops the simulation. Under `prefers-reduced-motion` the ambient pulses are hidden and
+- Pause: stops world movement and task timers; selecting or releasing an agent still updates its
+  gaze. Under `prefers-reduced-motion` gaze changes immediately, ambient pulses are hidden and
   agents move at 60% speed.
 
 ## Validation
 
-Commands run from the repository root on the final source, with their results:
+Revision checks run against the production export under `/preview/`, with the public API blocked
+to exercise the bundled fallback. The original build record is preserved in `docs/validation.md`.
 
 | Command | Result |
 | --- | --- |
 | `npm run build` | passes: `tsc -b` then Vite wrote `dist/` (index.html, 1 JS chunk, 1 CSS file, favicon.svg, og.png) |
 | `npm run typecheck` | passes with no errors (strict, `noUncheckedIndexedAccess`) |
-| `node test/scratch/check.mjs dist` (Playwright, Chromium at 390, 1440 and 320 wide, WebKit at 390) | 80/80 checks passed |
-| `node .imd/reads/skills/design-critic/scripts/taste.mjs --out test/scratch/taste` | 16/16 checks passed at 320, 390 and 1440 |
-| `node test/scratch/a11y.mjs` (tab order, focus ring, reduced motion, contrast) | see `docs/validation.md` |
+| `node scripts/check-interactions.mjs <playwright-module>` | 224 checks passed in Chromium; 320, 390, 1440px, DPR 1/2; seven resize cases, four world-edge selections, fifteen pan positions |
+| `node --experimental-strip-types scripts/check-labels.mjs` | 180 crowded encounter frames passed at three widths and zoom levels 0.5, 1, 2.5 |
+| `node .imd/reads/skills/design-critic/scripts/taste.mjs --out test/scratch/taste --offline` | 16/16 checks passed at 320, 390 and 1440 |
 
-The interaction check serves `dist/` under a `/preview/` subpath and verifies: the page title; no
-horizontal scroll; the hint and map on the first screen; 1,096 agents with unique IDs; agents move
-on their own; clicking a free agent sets its state to attention, holds its position and turns its
-face to the player; the panel opens with that agent's real ID and 13 fact rows and takes focus;
-clicking the background closes the panel and restores the agent's previous state, after which it
-moves again; Find agent by ID; Escape closes; an unknown ID shows a recoverable error; Pause stops
-the clock; the help dialog opens; and no console, page or failed-resource errors.
+The browser check reads actual canvas text draws, including halos, and requires every visible ID
+to remain present without collisions, clipping, sprite overlap or overlap with the map's text
+overlays. It also verifies direct selection and Find leave the entire face and ID outside the
+panel; selection/release turn the gaze while paused; coordinates and task timers stay fixed;
+the full Owner address wraps and can be selected; and Find, Escape, Help and Resume still work.
+Label placement gives the selected agent first choice, keeps the full numbers, and adds a
+connector when a label moves away from its agent. No new runtime dependency was added.
+
+The browser script uses an existing Playwright installation (omit the argument when `playwright`
+is locally resolvable). Set `PLAYWRIGHT_BROWSERS_PATH` if that installation uses a custom browser
+directory. It manages its preview server and browser in one foreground run, writes evidence only
+under ignored `test/scratch/`, and closes both on completion. Exact commands and evidence paths
+are in `docs/validation.md`.
 
 Limitations, recorded honestly: emulated mobile viewports are not physical devices; no
-screen-reader session was run (accessible names were read from the DOM only); browser-native 200%
-zoom was not tested; and the live refresh depends on the public endpoint being reachable at page
-load. Full coverage, findings and fixes are in `docs/validation.md` (also delivered as `artifacts/validation.md`).
+screen-reader session or browser-native 200% zoom was run. WebKit could not be rerun because its
+browser executable was unavailable, and the managed browser tool returned `Transport closed`;
+the revision was rendered and inspected using direct Playwright Chromium screenshots. Canvas
+contrast was not instrument-measured. Live refresh still depends on the public endpoint being
+reachable at page load. Full coverage, findings and fixes are in `docs/validation.md`.

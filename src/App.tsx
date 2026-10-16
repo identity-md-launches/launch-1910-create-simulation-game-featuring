@@ -33,6 +33,7 @@ export default function App() {
   const [status, setStatus] = useState('')
   const [agentCount, setAgentCount] = useState(sim.agents.length)
   const focusRef = useRef<{ x: number; y: number } | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const findInputRef = useRef<HTMLInputElement>(null)
   const reducedMotion = usePrefersReducedMotion()
 
@@ -186,7 +187,7 @@ export default function App() {
       </form>
 
       <main id="map-region" className="stage">
-        <GameCanvas sim={sim} paused={paused} reducedMotion={reducedMotion} onPick={pick} focusRef={focusRef} />
+        <GameCanvas sim={sim} paused={paused} reducedMotion={reducedMotion} onPick={pick} focusRef={focusRef} panelRef={panelRef} />
         {!agent && (
           <p className="hint" data-testid="hint">
             Tap an agent to meet it. {agentCount.toLocaleString('en-US')} agents are roaming.
@@ -197,6 +198,7 @@ export default function App() {
         </p>
         {agent && (
           <AgentPanel
+            panelRef={panelRef}
             sim={sim}
             agent={agent}
             collection={data.chain.collection}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { clampCamera, paintStaticLayer, render, screenToWorld, type Camera } from './render'
-import { agentAt, stepSim, type Sim } from './sim'
+import { clampCamera, paintStaticLayer, render, screenToWorld, unobscuredArea, type Camera } from './render'
+import { agentAt, stepGaze, stepSim, type Sim } from './sim'
 import { WORLD_H, WORLD_W } from './world'
 
 export interface GameCanvasProps {
@@ -11,6 +11,7 @@ export interface GameCanvasProps {
   onPick: (index: number | null) => void
   /** Camera requests from the UI (find an agent): centre on these world coordinates. */
   focusRef: React.RefObject<{ x: number; y: number } | null>
+  panelRef: React.RefObject<HTMLElement | null>
 }
 
 interface Pointer {
@@ -23,7 +24,7 @@ interface Pointer {
   moved: boolean
 }
 
-export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: GameCanvasProps) {
+export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef, panelRef }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const camRef = useRef<Camera>({ x: WORLD_W / 2, y: WORLD_H / 2, zoom: 1 })
   const hoverRef = useRef(-1)
@@ -44,6 +45,17 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
     let pinchDist = 0
     let frame = 0
     let last = performance.now()
+    let area = { x: 0, y: 0, w: 1, h: 1 }
+    let lastHeld = -1
+    const labelOffsets = new Map<number, { x: number; y: number }>()
+
+    const measureArea = () => {
+      const panel = panelRef.current?.getBoundingClientRect()
+      const rect = canvas.getBoundingClientRect()
+      return unobscuredArea(vp, panel && {
+        x: panel.x - rect.x, y: panel.y - rect.y, w: panel.width, h: panel.height,
+      })
+    }
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect()
@@ -52,7 +64,7 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
       vp.dpr = Math.min(2, window.devicePixelRatio || 1)
       canvas.width = Math.round(vp.w * vp.dpr)
       canvas.height = Math.round(vp.h * vp.dpr)
-      clampCamera(cam, vp)
+      clampCamera(cam, vp, measureArea())
     }
     resize()
     const ro = new ResizeObserver(resize)
@@ -95,7 +107,7 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
       if (pointers.size === 1) {
         cam.x -= dx / cam.zoom
         cam.y -= dy / cam.zoom
-        clampCamera(cam, vp)
+        clampCamera(cam, vp, area)
         if (p.moved) canvas.style.cursor = 'grabbing'
       } else if (pointers.size === 2) {
         const [p1, p2] = [...pointers.values()]
@@ -126,11 +138,11 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
     const zoomAt = (sx: number, sy: number, factor: number) => {
       const before = screenToWorld(cam, vp, sx, sy)
       cam.zoom *= factor
-      clampCamera(cam, vp)
+      clampCamera(cam, vp, area)
       const after = screenToWorld(cam, vp, sx, sy)
       cam.x += before.x - after.x
       cam.y += before.y - after.y
-      clampCamera(cam, vp)
+      clampCamera(cam, vp, area)
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
@@ -163,7 +175,7 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
           return
       }
       e.preventDefault()
-      clampCamera(cam, vp)
+      clampCamera(cam, vp, area)
     }
 
     // Test hook: lets interaction checks read world/screen state without touching internals.
@@ -188,15 +200,35 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
-      if (focusRef.current) {
-        cam.x = focusRef.current.x
-        cam.y = focusRef.current.y
-        if (cam.zoom < 1) cam.zoom = 1
+      const nextArea = measureArea()
+      const layoutChanged = nextArea.x !== area.x || nextArea.y !== area.y || nextArea.w !== area.w || nextArea.h !== area.h
+      area = nextArea
+      const selected = sim.agents[sim.held]
+      // Wait for the actual sheet/column to mount. Move only the camera: the
+      // held agent's world position and interrupted task remain untouched.
+      if (selected && panelRef.current && (sim.held !== lastHeld || layoutChanged || focusRef.current)) {
+        if (focusRef.current && cam.zoom < 1) cam.zoom = 1
+        clampCamera(cam, vp, area)
+        // Focusing may reveal the void beyond a world edge; keep the face at
+        // the open area's centre even for agents near that edge.
+        cam.x = selected.x + (vp.w / 2 - area.x - area.w / 2) / cam.zoom
+        cam.y = selected.y + (vp.h / 2 - area.y - area.h / 2) / cam.zoom
         focusRef.current = null
-        clampCamera(cam, vp)
+        lastHeld = sim.held
+      } else if (!selected) {
+        lastHeld = -1
+        focusRef.current = null
       }
       if (!pausedRef.current) stepSim(sim, reducedRef.current ? dt * 0.6 : dt)
-      render(g, staticLayer, sim, cam, vp, { hovered: hoverRef.current, reducedMotion: reducedRef.current })
+      stepGaze(sim, dt, reducedRef.current)
+      const canvasRect = canvas.getBoundingClientRect()
+      const occluders = [...(canvas.parentElement?.querySelectorAll('.hint, .data-note') ?? [])].map(el => {
+        const r = el.getBoundingClientRect()
+        return { x: r.x - canvasRect.x, y: r.y - canvasRect.y, w: r.width, h: r.height }
+      })
+      render(g, staticLayer, sim, cam, vp, {
+        hovered: hoverRef.current, reducedMotion: reducedRef.current, area, labelOffsets, occluders,
+      })
       frame = requestAnimationFrame(loop)
     }
     frame = requestAnimationFrame(loop)
@@ -211,7 +243,7 @@ export function GameCanvas({ sim, paused, reducedMotion, onPick, focusRef }: Gam
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('keydown', onKey)
     }
-  }, [sim, onPick, focusRef])
+  }, [sim, onPick, focusRef, panelRef])
 
   return (
     <canvas

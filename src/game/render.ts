@@ -1,5 +1,6 @@
 import type { Agent, Sim } from './sim'
 import { WORLD_H, WORLD_W, wirePoint, type World } from './world'
+import { layoutLabels, type LabelAnchor, type Rect } from './labels'
 
 export interface Camera {
   /** World coordinates at the viewport centre. */
@@ -85,6 +86,9 @@ interface Viewport {
 export interface RenderOptions {
   hovered: number
   reducedMotion: boolean
+  area: Rect
+  occluders: Rect[]
+  labelOffsets: Map<number, { x: number; y: number }>
 }
 
 export function render(
@@ -168,16 +172,56 @@ export function render(
     g.setLineDash([])
   }
 
-  // Agents, culled to the viewport. Labels are drawn at constant screen size.
-  const labelPx = 11 / cam.zoom
-  g.font = `600 ${labelPx}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`
+  // Reserve all sprite bounds before placing IDs in CSS pixels. Connectors go
+  // behind the sprites; full labels are the final pass, above every body.
+  g.setTransform(vp.dpr, 0, 0, vp.dpr, 0, 0)
+  g.font = '600 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace'
   g.textAlign = 'center'
   g.textBaseline = 'top'
   const margin = 40
   const t = sim.time
+  const visible: Agent[] = []
+  const anchors: LabelAnchor[] = []
   for (const a of agents) {
     if (a.x < left - margin || a.x > right + margin || a.y < top - margin || a.y > bottom + margin) continue
-    drawAgent(g, a, t, a.index === sim.held, a.index === opts.hovered, labelPx, opts.reducedMotion)
+    visible.push(a)
+    const x = a.x * cam.zoom + ox
+    const y = (a.y + agentBob(a, t, opts.reducedMotion)) * cam.zoom + oy
+    if (x < opts.area.x || x > opts.area.x + opts.area.w || y < opts.area.y || y > opts.area.y + opts.area.h) continue
+    const selected = a.index === sim.held
+    const r = (selected ? 24 : a.index === opts.hovered ? 16 : a.state === 'work' ? 14 : 10) * cam.zoom
+    const text = String(a.seat.agentId)
+    anchors.push({
+      id: a.index, text, x, y, selected, width: g.measureText(text).width + 6,
+      labelY: y + r + 3,
+      body: { x: x - r, y: y - r, w: r * 2, h: r * 2 },
+      antenna: { x: x - 2 * cam.zoom, y: y - 17 * cam.zoom, w: 4 * cam.zoom, h: 9 * cam.zoom },
+    })
+  }
+  const labels = layoutLabels(anchors, opts.area, opts.labelOffsets, opts.occluders)
+  g.lineWidth = 1
+  for (const l of labels) {
+    if (!l.moved) continue
+    g.strokeStyle = l.anchor.selected ? COLORS.label : 'rgba(232, 237, 255, 0.55)'
+    g.beginPath()
+    g.moveTo(l.anchor.x, l.anchor.y)
+    g.lineTo(Math.max(l.x, Math.min(l.x + l.w, l.anchor.x)), Math.max(l.y, Math.min(l.y + l.h, l.anchor.y)))
+    g.stroke()
+  }
+  g.setTransform(vp.dpr * cam.zoom, 0, 0, vp.dpr * cam.zoom, ox * vp.dpr, oy * vp.dpr)
+  for (const a of visible) {
+    if (a.index !== sim.held) drawAgent(g, a, t, false, a.index === opts.hovered, opts.reducedMotion)
+  }
+  const selected = agents[sim.held]
+  if (selected) drawAgent(g, selected, t, true, false, opts.reducedMotion)
+  g.setTransform(vp.dpr, 0, 0, vp.dpr, 0, 0)
+  g.lineWidth = 3
+  g.lineJoin = 'round'
+  g.strokeStyle = COLORS.labelHalo
+  for (const l of labels) {
+    g.strokeText(l.anchor.text, l.x + l.w / 2, l.y + 2)
+    g.fillStyle = l.anchor.selected ? COLORS.label : 'rgba(232, 237, 255, 0.92)'
+    g.fillText(l.anchor.text, l.x + l.w / 2, l.y + 2)
   }
 
   g.setTransform(1, 0, 0, 1, 0, 0)
@@ -194,17 +238,20 @@ function bodyColor(a: Agent): string {
   }
 }
 
+function agentBob(a: Agent, t: number, reduced: boolean): number {
+  return reduced ? 0 : Math.sin(t * 3 + a.phase) * (a.state === 'work' ? 1.2 : 0.4)
+}
+
 function drawAgent(
   g: CanvasRenderingContext2D,
   a: Agent,
   t: number,
   held: boolean,
   hovered: boolean,
-  labelPx: number,
   reduced: boolean,
 ): void {
   const r = 9
-  const bob = reduced ? 0 : Math.sin(t * 3 + a.phase) * (a.state === 'work' ? 1.2 : 0.4)
+  const bob = agentBob(a, t, reduced)
   const x = a.x
   const y = a.y + bob
   const color = bodyColor(a)
@@ -289,16 +336,6 @@ function drawAgent(
     g.arc(ex + eyeSpread, ey, er * 0.45, 0, Math.PI * 2)
     g.fill()
   }
-
-  // ID label with a dark halo so it stays legible over bright wires.
-  const label = String(a.seat.agentId)
-  const ly = y + r + 3
-  g.lineWidth = Math.max(2, labelPx * 0.28)
-  g.strokeStyle = COLORS.labelHalo
-  g.lineJoin = 'round'
-  g.strokeText(label, x, ly)
-  g.fillStyle = held ? COLORS.label : 'rgba(232, 237, 255, 0.92)'
-  g.fillText(label, x, ly)
 }
 
 export function screenToWorld(cam: Camera, vp: { w: number; h: number }, sx: number, sy: number) {
@@ -308,11 +345,30 @@ export function screenToWorld(cam: Camera, vp: { w: number; h: number }, sx: num
   }
 }
 
-export function clampCamera(cam: Camera, vp: { w: number; h: number }): void {
+/** Largest rectangular map area left by the measured details panel, with an 8px gutter. */
+export function unobscuredArea(vp: { w: number; h: number }, panel?: Rect): Rect {
+  const full = { x: 0, y: 0, w: vp.w, h: vp.h }
+  if (!panel) return full
+  const left = Math.max(0, Math.min(vp.w, panel.x - 8))
+  const top = Math.max(0, Math.min(vp.h, panel.y - 8))
+  const right = Math.max(0, Math.min(vp.w, panel.x + panel.w + 8))
+  const bottom = Math.max(0, Math.min(vp.h, panel.y + panel.h + 8))
+  return [
+    { x: 0, y: 0, w: left, h: vp.h },
+    { x: right, y: 0, w: vp.w - right, h: vp.h },
+    { x: 0, y: 0, w: vp.w, h: top },
+    { x: 0, y: bottom, w: vp.w, h: vp.h - bottom },
+  ].sort((a, b) => b.w * b.h - a.w * a.h)[0]!
+}
+
+export function clampCamera(cam: Camera, vp: { w: number; h: number }, area: Rect = { x: 0, y: 0, w: vp.w, h: vp.h }): void {
   const minZoom = Math.max(0.5, vp.w / WORLD_W, vp.h / WORLD_H)
   cam.zoom = Math.min(2.5, Math.max(minZoom, cam.zoom))
-  const halfW = vp.w / 2 / cam.zoom
-  const halfH = vp.h / 2 / cam.zoom
-  cam.x = Math.min(WORLD_W - halfW, Math.max(halfW, cam.x))
-  cam.y = Math.min(WORLD_H - halfH, Math.max(halfH, cam.y))
+  // Clamp against the unobscured map, so the panel cannot push edge agents off it.
+  const minX = (vp.w / 2 - area.x) / cam.zoom
+  const minY = (vp.h / 2 - area.y) / cam.zoom
+  const maxX = WORLD_W + (vp.w / 2 - area.x - area.w) / cam.zoom
+  const maxY = WORLD_H + (vp.h / 2 - area.y - area.h) / cam.zoom
+  cam.x = Math.min(maxX, Math.max(minX, cam.x))
+  cam.y = Math.min(maxY, Math.max(minY, cam.y))
 }

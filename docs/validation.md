@@ -2,6 +2,96 @@
 
 Worker-side record. It is not an independent certification.
 
+## Revision: 2026-10-16
+
+Scope: reproduce and address the four reopened findings while preserving the accepted game,
+data source, visual system, controls and dependency lockfile. All four findings reproduced in
+Chromium against the original committed export before source changes. The following record
+supersedes the original build record below for the revised behavior and current browser coverage.
+
+### Findings, corrections and rechecks
+
+| Finding | Reproduction before editing | Correction and observed result |
+| --- | --- | --- |
+| High, panel covers selected agent (`2d44b176…`) | Find 51364 at 390×844 put the face at (195,498); the sheet started at y=428.8125 and `elementFromPoint` returned a paragraph. At 320×700 the face was (160,426), below the sheet's y=371.203125 edge. | `src/game/GameCanvas.tsx:203` reads the actual panel bounds through its element ref. `src/game/render.ts:347` finds the remaining map rectangle with an 8px gutter. Every selection, Find result or layout change centres the camera there; the agent's world position/task remain untouched. Find now puts the face at (195,286.40625) at 390, (160,257.6015625) at 320, and (528,502) at 1440. Direct selection from the region subsequently covered by the panel also passes. Whole face and full ID were checked using measured bounds and hit testing. |
+| High, overlapping agent IDs (`ced95c97…`) | At zoom 0.5 the original export had 26 overlapping pairs at 390px, 17 at 320px and 131 at 1440px (overlap greater than 4px on both axes). | `src/game/render.ts:175` separates connectors, bodies and labels into ordered passes. `src/game/labels.ts:95` places full measured IDs in CSS pixels, reserves sprite/antenna and UI-overlay bounds, and gives selection priority. Displaced labels have connectors. Final captured minimum-zoom counts: 161/161 visible IDs at 390, 113/113 at 320, 629/629 at 1440, and 160/160 at 390 DPR 2, with no collisions, omissions, clipping or overlaps with bodies/overlay text. Fifteen further pan positions and 180 crowded encounter frames passed. |
+| Medium, Pause freezes gaze (`09947a9c…`) | Face stayed 0 after selecting while paused. After a running selection and Pause, release left face approximately 0.99998. | `src/game/sim.ts:175` adds `stepGaze`, called outside the world-pause branch at `src/game/GameCanvas.tsx:223`. While paused, selection reaches face >0.99 in 750ms and background release reaches <0.01 in 850ms; reduced motion sets 1/0 immediately. World time, every agent's position/heading/timer/cooldown, network state and the saved task were compared and stayed frozen. |
+| Medium, abbreviated Owner (`fd1717f0…`) | The Owner link displayed 11 characters; only its hover title held all 42. | `src/ui/AgentPanel.tsx:98` renders `seat.owner` in full using the same destination and existing `overflow-wrap: anywhere`. Browser checks confirm all characters, full text selection for copying, wrapping and no horizontal overflow at 320/390/1440 and DPR 2. |
+
+The complete finding IDs and dispositions are in `.imd-responses.json` for the review handoff.
+No changes were made to the public snapshot, dependency versions, styles, fonts or shared images.
+
+### Better Interface coverage in this revision
+
+| Domain | Coverage | Evidence and limits |
+| --- | --- | --- |
+| Accessibility | Checked for changed flows | Find remains the keyboard route to selection; heading receives focus; Escape and background release work; all facts remain present; full addresses are selectable; reduced-motion gaze snaps directly. Browser checks use DOM and canvas instrumentation. No screen-reader or physical-device session. |
+| Layout | Checked | First screen at 390 retains the map and action. Direct/Find selection, full face/ID bounds, panel scroll, seven resize cases (320×568, 844×390, 768×800, 895×700, 896×700, 1440×900, 390×844), four world-edge agents and a changed sheet height passed. No horizontal overflow. Native 200% zoom and RTL rendering were not checked. |
+| Writing | Checked, source | Existing action labels, source/fallback notice and errors retained. Activity text is now consistent with the actual paused gaze. Unknown ID still produces a recoverable error; no new product copy or claims. |
+| Typography | Checked | Existing five UI sizes and 11px canvas IDs retained. Measured ID bounds include the dark halo; all bodies render before IDs. Owner row grows naturally instead of abbreviating. Screenshots confirm readable separated IDs and a wrapped, selectable address. |
+| Colors | Checked within scope | Palette and status cues unchanged. Final taste probe's measurable DOM text passes contrast thresholds. Canvas text and text over translucent canvas overlays are not instrument-measured; no claim of complete contrast certification. |
+| UI | Checked | Selected body has priority among sprites; labels have priority-aware placement and connectors. Camera repositions only on selection/layout changes, so ordinary panning remains available. Pause freezes the world while direct selection feedback remains responsive. Help, Escape, Resume and the Find error path still pass. |
+
+### Commands and results
+
+```sh
+npm ci --cache test/scratch/npm-cache --ignore-scripts
+npm run typecheck
+npm run build
+PLAYWRIGHT_BROWSERS_PATH=/opt/imd-tools/ms-playwright node scripts/check-interactions.mjs /opt/imd-tools/playwright-mcp/node_modules/playwright/index.mjs
+node --experimental-strip-types scripts/check-labels.mjs
+IMD_PLAYWRIGHT=/opt/imd-tools/playwright-mcp/node_modules/playwright/index.mjs PLAYWRIGHT_BROWSERS_PATH=/opt/imd-tools/ms-playwright node .imd/reads/skills/design-critic/scripts/taste.mjs --out test/scratch/taste --offline
+git diff --check
+```
+
+- Build and typecheck: exit 0. Export: `dist/index.html` 1.33kB, JS 361.77kB (118.50kB gzip), CSS
+  8.28kB, the existing favicon and OG image. Vite uses `base: './'`; local assets were exercised
+  under `/preview/`. Dependencies were installed from the unchanged lockfile; no test or runtime
+  dependency was added. The supplied dependency directory initially could not execute `tsc`;
+  reinstalling from the lockfile resolved it.
+- Interaction script: **224 assertions passed** in Chromium. The API was deliberately blocked
+  so all checks used the bundled 1,096-agent snapshot. Viewports: 390×844, 320×700, 1440×900,
+  and 390×844 at DPR 2, plus the resize cases above. Zero script/console/local-resource errors
+  in the main viewport cases; the expected blocked API request is excluded from error counts.
+- Label script: **180 crowded encounter frames passed**, with twelve agents converging on a
+  node, the selected agent last in input, three widths and three zoom levels. Requires all full
+  IDs, no text/body/antenna overlap, viewport containment and selected-first placement.
+- taste@1: **16/16 checks passed** on the final export at 320, 390 and 1440. One intermediate
+  probe overlapped a rebuild and recorded a transient root-document 404; it was discarded and
+  rerun with a stable export. The probe measures DOM text; canvas readability is covered by the
+  dedicated paint instrumentation and screenshots, not inferred from the probe.
+- `git diff --check`: exit 0. `.gitignore` was preserved; dependency/cache files remain excluded
+  at every nesting level. No packaging archives or submodules were added.
+- Submission file budget: approximately **1.04 MB** across 33 source/export/documentation files,
+  below 8 MiB; `dist/` is **569,224 bytes**. Every referenced local asset exists and uses a
+  relative URL. The four-response handoff JSON is present separately for the worker to consume.
+
+Evidence (temporary, regenerated by the delivered browser script):
+`test/scratch/revision/results.json`, `390-1-first.png`, `390-1-find.png`, `320-1-find.png`,
+`1440-1-direct.png`, `390-1-labels.png`, `1440-1-labels.png`, `390-1-owner.png`,
+`320-1-owner.png`, and `1440-1-owner.png`, all under `test/scratch/revision/`.
+Before-edit reproduction: `test/scratch/before/results.json` and the matching screenshots.
+Probe evidence: `test/scratch/taste/taste.json` and `test/scratch/taste/shots/`.
+Screenshots are validation scratch files, not production assets.
+
+### Completion and limitations
+
+Complete for the four-finding revision. The final source/export, persistent regression scripts,
+README, design record and four JSON responses are provided. Chromium screenshots were viewed at
+mobile and desktop widths. WebKit launch failed because its executable was unavailable; the
+managed browser tool returned `Transport closed`, so direct Playwright Chromium supplied the
+rendered checks. WebKit was **not** rerun for this revision. No screen-reader session, physical
+touch-device test, native 200% zoom or exhaustive long-running/future-roster test was performed.
+Live endpoint availability was not revalidated; the fallback remains explicitly labelled in the
+site. Hosting is performed by the network after review.
+
+---
+
+## Original accepted build record (previous round)
+
+The remaining sections record the original checks and limitations, not additional checks run
+in this revision.
+
 ## 1. Scope and assumptions
 
 - One page, `index.html`, built to `dist/` with Vite (`base: './'`). Flows reviewed: first screen,

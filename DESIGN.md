@@ -1,8 +1,10 @@
 # IMD Swarm Map: design system
 
 Extracted from the final source (`src/index.css`, `src/game/render.ts`, `src/App.tsx`,
-`src/ui/*.tsx`) and confirmed in the built export with Chromium at 320, 390 and 1440 wide and
-WebKit at 390.
+`src/ui/*.tsx`) and confirmed in the built export with Chromium at 320, 390 and 1440 wide,
+including DPR 2 on the 390px viewport. The revision also checks resize behavior at 768, 844,
+895 and 896px. WebKit was checked in the original build; its executable was unavailable for
+this revision.
 
 ## Overview
 
@@ -39,7 +41,8 @@ Canvas colours are the `COLORS` constant in `src/game/render.ts` (same hex value
 cyan and violet at 0.22 alpha, node fill is `--navy-900`). Status hue is never the only cue: the
 panel states the status in words.
 
-Measured in the export (panel text on `rgb(15,22,41)`): primary text 15.41:1, secondary text
+Measured in the original export, with the palette unchanged in this revision (panel text on
+`rgb(15,22,41)`): primary text 15.41:1, secondary text
 8.25:1, link 12.20:1; primary button text on accent 11.33:1; header buttons 13.95:1; the data note
 on the page background 9.01:1. Text drawn on the canvas (agent ID labels with a dark halo) was not
 measured by the probe.
@@ -63,7 +66,13 @@ Scale (five sizes, `src/index.css`):
 Line height 1.5 on the body, 1.2 on titles and buttons. Letter-spacing is natural everywhere. The
 panel title and all numbers use `font-variant-numeric: tabular-nums` (`.num`). Descriptions use
 `text-wrap: pretty`; long values use `overflow-wrap: anywhere`. Canvas ID labels are drawn at a
-constant 11px screen size regardless of zoom (`render.ts`, `labelPx`).
+constant 11px screen size regardless of zoom (`render.ts`, the screen-space font). Their full ID
+strings are measured before placement; each label reserves its measured width plus 6px and 15px
+height, with a 1px collision gutter and a 4px inset from the visible map edges (`labels.ts`).
+Selected labels are placed first. Nearby positions and retained short offsets resolve collisions
+with other labels, bodies, antennas and the map's text overlays. Displaced labels use a 1px
+connector in `rgba(232,237,255,0.55)` (primary label colour when selected). Connectors render below
+sprites; labels and their 3px dark halos render after all sprites.
 
 ## Layout
 
@@ -86,9 +95,16 @@ Breakpoints come from the content, in rem:
 - 56rem and up: title 24px; the panel docks as a 22.5rem column on the trailing side with 16px
   margins and full rounding.
 
-Observed: no horizontal scroll at 320, 390 or 1440; no text box overlapping another. Not checked:
-widths between 600 and 1400, native 200% zoom, RTL mirroring (logical properties are used
-throughout, but the mirror was not rendered).
+Every selection, Find result and panel/viewport size change centres the selected face in the
+largest rectangular part of the map left by the actual panel bounds, with an 8px gutter. The
+camera moves; the agent's world coordinates and interrupted task do not. Focusing near a world
+edge may reveal the surrounding void so the selected face still occupies the open area's centre.
+
+Observed: no horizontal scroll at 320, 390, 768, 844, 895, 896 or 1440; no DOM text overlap in the
+probe; no canvas ID overlap or missing visible IDs in the recorded browser cases. Resizing an
+open panel, crossing the 56rem breakpoint, and changing the sheet's height retain the selected
+face and label on the visible map. Not checked: native 200% zoom, RTL mirroring (logical properties
+are used throughout, but the mirror was not rendered), physical devices.
 
 ## Elevation & depth
 
@@ -122,12 +138,17 @@ radius encodes kind (hub 22, neuron 13, relay 8).
 - Agent panel (`.panel`, `src/ui/AgentPanel.tsx`): non-modal `role="dialog"` labelled by its
   heading, which receives focus on open; a `<dl>` of `.fact` rows (label leading, tabular value
   trailing, divider below); an external link to the seat on Etherscan; a data-source note. Closes
-  on the close button, Escape, or a click on the map; focus returns to the canvas.
+  on the close button, Escape, or a click on the map; focus returns to the canvas. The Owner link
+  renders all 42 address characters; `overflow-wrap: anywhere` lets the existing fact row grow.
+  Its element ref supplies actual panel bounds to the map camera and label layout.
 - Help dialog (`.help`, `src/ui/HelpDialog.tsx`): native `<dialog>` via `showModal()`, so focus
   trapping, Escape and backdrop are the browser's. Click on the backdrop closes.
 - Overlays (`.hint`, `.data-note`): `pointer-events: none` text pills over the canvas.
 - Map (`.map`, `src/game/GameCanvas.tsx`): focusable canvas with `role="img"` and a descriptive
-  label; `touch-action: none` and `user-select: none` because it is a drag surface.
+  label; `touch-action: none` and `user-select: none` because it is a drag surface. `stepGaze`
+  (`sim.ts`) updates selection-facing separately from world simulation, including while paused;
+  reduced motion sets the face directly. The selected body is drawn last among sprites so an
+  encounter cannot paint another body over the face.
 - Skip link (`.skip-link`): first focusable element, visible only on focus.
 
 ## Do's and don'ts

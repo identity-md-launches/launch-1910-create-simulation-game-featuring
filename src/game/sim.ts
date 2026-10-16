@@ -171,6 +171,14 @@ function turnToward(a: Agent, target: number, dt: number, rate = 6): void {
   a.heading += diff * step
 }
 
+/** Selection feedback uses wall time, even when world movement and task timers are paused. */
+export function stepGaze(sim: Sim, dt: number, reducedMotion: boolean): void {
+  for (const a of sim.agents) {
+    const target = a.state === 'attention' ? 1 : 0
+    a.face = reducedMotion ? target : a.face + (target - a.face) * Math.min(1, dt * 8)
+  }
+}
+
 export function stepSim(sim: Sim, dt: number): void {
   const { world, agents, rng } = sim
   sim.time += dt
@@ -196,8 +204,6 @@ export function stepSim(sim: Sim, dt: number): void {
 
   for (const a of agents) {
     a.cooldown = Math.max(0, a.cooldown - dt)
-    const faceTarget = a.state === 'attention' ? 1 : 0
-    a.face += (faceTarget - a.face) * Math.min(1, dt * 8)
 
     switch (a.state) {
       case 'attention':

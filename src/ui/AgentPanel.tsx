@@ -3,6 +3,7 @@ import { acceptanceRate, daysSinceActive, type SeatRecord } from '../data/agents
 import { describeActivity, type Agent, type Sim } from '../game/sim'
 
 export interface AgentPanelProps {
+  panelRef: React.RefObject<HTMLElement | null>
   sim: Sim
   agent: Agent
   collection: string
@@ -28,11 +29,7 @@ function statusText(seat: SeatRecord, dataAt: string): string {
   return `Resting, last active ${Math.round(days)} days ago`
 }
 
-function shortAddress(a: string): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`
-}
-
-export function AgentPanel({ sim, agent, collection, dataAt, dataMode, onClose }: AgentPanelProps) {
+export function AgentPanel({ sim, agent, collection, dataAt, dataMode, onClose, panelRef }: AgentPanelProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const [activity, setActivity] = useState(() => describeActivity(sim, agent))
   const seat = agent.seat
@@ -64,7 +61,7 @@ export function AgentPanel({ sim, agent, collection, dataAt, dataMode, onClose }
   ]
 
   return (
-    <aside className="panel" role="dialog" aria-labelledby="agent-heading" data-testid="agent-panel">
+    <aside ref={panelRef} className="panel" role="dialog" aria-labelledby="agent-heading" data-testid="agent-panel">
       <div className="panel-head">
         <div>
           <h2 id="agent-heading" ref={headingRef} tabIndex={-1} className="panel-title">
@@ -98,7 +95,7 @@ export function AgentPanel({ sim, agent, collection, dataAt, dataMode, onClose }
                 rel="noreferrer"
                 title={seat.owner}
               >
-                {shortAddress(seat.owner)}
+                {seat.owner}
               </a>
             ) : (
               'Unknown'
